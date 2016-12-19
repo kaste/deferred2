@@ -296,3 +296,11 @@ def queue_multiple_tasks(queue, transactional, tasks):
         (yield taskqueue.Queue(queue).add_async(tasks,
                                                 transactional=transactional))
     )
+
+
+def one_shot_async(*tasks):
+    return defer_async(defer_multi, *tasks)
+
+
+def one_shot(*tasks):
+    return one_shot_async(*tasks).get_result()

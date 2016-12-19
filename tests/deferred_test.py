@@ -243,5 +243,19 @@ class TestAddMultipleTasks:
         )
 
 
+@uses('clear_messages', 'ndb')
+class TestOneShot:
+    def testEnqueueOneTaskWhichEnqueuesTheRest(self, deferreds):
+
+        deferred.one_shot(
+            *[deferred.task(work, i) for i in range(10)]
+        )
+        assert deferreds.count_tasks() == 1
+        deferreds.tick()
+        assert deferreds.count_tasks() == 10
+        deferreds.consume()
+
+
+
 
 
