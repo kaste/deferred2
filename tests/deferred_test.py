@@ -219,7 +219,7 @@ class TestAddMultipleTasks:
     def testAsync(self, deferreds):
 
         deferred.defer_multi_async(
-            deferred.task(work, i) for i in range(10)).get_result()
+            *[deferred.task(work, i) for i in range(10)]).get_result()
 
         deferreds.consume()
 
@@ -228,10 +228,20 @@ class TestAddMultipleTasks:
 
     def testSync(self, deferreds):
 
-        deferred.defer_multi(deferred.task(work, i) for i in range(10))
+        deferred.defer_multi(*[deferred.task(work, i) for i in range(10)])
 
         deferreds.consume()
 
         assert sorted(messages) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    def testBigPayloadsRequireTransaction(self, deferreds):
+        ndb.transaction(
+            lambda: deferred.defer_multi(
+                *[deferred.task(work, str(i) * 100000) for i in range(5)]
+            ),
+            xg=True
+        )
+
+
 
 

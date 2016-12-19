@@ -233,26 +233,66 @@ def enqueue_async(task):
         raise ndb.Return(rv)
 
 
+@ndb.tasklet
+def handle_big_payloads(task):
+    # type: (DeferredTask) -> DeferredTask
+    task_def = task.task_def
+
+    if len(task_def['payload']) < SMALL_PAYLOAD:
+        raise ndb.Return(task)
+    else:
+        if not ndb.in_transaction():
+            raise taskqueue.BadTransactionState(
+                'Handling BIG payloads touches the db and thus requires '
+                'a transaction.')
+
+        entity = _DeferredTaskEntity()
+        entity.payload = task_def['payload']
+        key = yield entity.put_async()
+
+        new_def = task_def.copy()
+        new_def['payload'] = serialize(run_from_datastore, key)
+        new_task = task._replace(task_def=new_def)
+        # new_task = DeferredTask(queue, transactional, new_def)
+        raise ndb.Return(new_task)
+
 
 @ndb.tasklet
-def defer_multi_async(tasks):
+def defer_multi_async(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> Future[List[taskqueue.Task]]
-    rv = yield [enqueue_async(task) for task in tasks]
-    raise ndb.Return(rv)
+    transform_fns = kwargs.pop(
+        'transformers', [handle_big_payloads])  \
+        # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
+    if transform_fns:
+        for fn in transform_fns:
+            tasks = yield map(fn, tasks)
+        tasks = filter(None, tasks)
 
-
+    all_tasks = []
     grouped = defaultdict(list)
     for (queue, transactional, task) in tasks:
-        grouped[(queue, transactional)].append(task)
-
-    rv = yield (taskqueue.Queue(queue).add_async(tasks, transactional)
-                for (queue, transactional), tasks in grouped.items())
-
-    raise ndb.Return(rv)
+        api_task = convert_task_to_api_task(task)
+        grouped[(queue, transactional)].append(api_task)
+        all_tasks.append(api_task)
 
 
+    yield [
+        queue_multiple_tasks(queue, transactional, tasks)
+        for (queue, transactional), tasks in grouped.iteritems()  # noqa: F812
+    ]
 
-def defer_multi(tasks):
+    raise ndb.Return(all_tasks)
+
+def defer_multi(*tasks):
     # type: (List[DeferredTask]) -> List[taskqueue.Task]
-    return defer_multi_async(tasks).get_result()
+    return defer_multi_async(*tasks).get_result()
 
+
+@ndb.tasklet
+def queue_multiple_tasks(queue, transactional, tasks):
+    # Wrapper b/c Queue().add_async returns a UserRPC but a MultiFuture only
+    # accepts Futures as dependents.
+    raise ndb.Return(
+        (yield taskqueue.Queue(queue).add_async(tasks,
+                                                transactional=transactional))
+    )
