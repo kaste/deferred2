@@ -34,9 +34,8 @@ Patch of the original code:
 from google.appengine.ext import deferred as old_deferred
 
 
+from collections import namedtuple, defaultdict
 import hashlib
-import logging
-import functools
 
 
 from google.appengine.api import taskqueue
@@ -125,29 +124,20 @@ def run_from_datastore(key):
 serialize = old_deferred.serialize
 
 
-@ndb.tasklet
-def defer_async(obj, *args, **kwargs):
-    """Defers a callable for execution later.
+DeferredTask = namedtuple(
+    'DeferredTask', ['queue_name', 'transactional', 'task_def'])  \
+    # type: Tuple[str, bool, dict]
 
-    The default deferred URL of /_ah/queue/deferred will be used unless an
-    alternate URL is explicitly specified. If you want to use the default URL
-    for a queue, specify _url=None. If you specify a different URL, you will
-    need to install the handler on that URL (see the module docstring for
-    details).
+def convert_task_to_api_task(task_def):
+    # type: (dict) -> taskqueue.Task
+    return taskqueue.Task(**task_def)
 
-    Args:
-        obj: The callable to execute. See module docstring for restrictions.
-        args: Positional arguments to call the callable with.
-        kwargs: _countdown, _eta, _headers, _name, _target, _transactional,
-                _url, _retry_options, _queue: Passed through to the task queue
-                - see the task queue documentation for details.
-                Any other keyword arguments are passed through to the callable.
-    Returns:
-        A taskqueue.Task object which represents an enqueued callable.
-    """
+
+def task(obj, *args, **kwargs):
+    # type: (...) -> DeferredTask
     taskargs = {x[1:]: kwargs.pop(x)
                 for x in ("_countdown", "_eta", "_name", "_target",
-                          "_retry_options") if x in kwargs}
+                          "_url", "_retry_options") if x in kwargs}
 
     taskargs.setdefault('url', _DEFAULT_URL)
     taskargs["headers"] = dict(_TASKQUEUE_HEADERS)
@@ -175,41 +165,94 @@ def defer_async(obj, *args, **kwargs):
         transactional = False if 'name' in taskargs else ndb.in_transaction()
     queue = kwargs.pop("_queue", _DEFAULT_QUEUE)
 
-    pickled = serialize(obj, *args, **kwargs)
-    if len(pickled) < SMALL_PAYLOAD:
-        # taskqueue.Queue(queue).add_async([task], transactional)
-        task = taskqueue.Task(payload=pickled, **taskargs)
-        rv = yield task.add_async(queue, transactional=transactional)
-        raise ndb.Return(rv)
-    else:
-        entity = _DeferredTaskEntity()
-        entity.payload = pickled
-        key = yield entity.put_async()
+    taskargs['payload'] = serialize(obj, *args, **kwargs)
 
-        pickled = serialize(run_from_datastore, key)
-        try:
-            task = taskqueue.Task(payload=pickled, **taskargs)
-            rv = yield task.add_async(queue, transactional=transactional)
-            raise ndb.Return(rv)
-        except taskqueue.Error, e:
-            if not ndb.in_transaction():
-                yield entity.delete_async()
-            raise e
+    return DeferredTask(queue_name=queue,
+                        transactional=transactional,
+                        task_def=taskargs)
+
+
+
+# @ndb.tasklet
+def defer_async(obj, *args, **kwargs):
+    # type: (...) -> Future[taskqueue.Task]
+    """Defers a callable for execution later.
+
+    The default deferred URL of /_ah/queue/deferred will be used unless an
+    alternate URL is explicitly specified. If you want to use the default URL
+    for a queue, specify _url=None. If you specify a different URL, you will
+    need to install the handler on that URL (see the module docstring for
+    details).
+
+    Args:
+        obj: The callable to execute. See module docstring for restrictions.
+        args: Positional arguments to call the callable with.
+        kwargs: _countdown, _eta, _headers, _name, _target, _transactional,
+                _url, _retry_options, _queue: Passed through to the task queue
+                - see the task queue documentation for details.
+                Any other keyword arguments are passed through to the callable.
+    Returns:
+        A taskqueue.Task object which represents an enqueued callable.
+    """
+
+    deferred = task(obj, *args, **kwargs)
+    return enqueue_async(deferred)
 
 
 def defer(obj, *args, **kwargs):
+    # type: (...) -> taskqueue.Task
     return defer_async(obj, *args, **kwargs).get_result()
 
 
 @ndb.tasklet
+def enqueue_async(task):
+    # type: (DeferredTask) -> Future[taskqueue.Task]
+    (queue, transactional, task_def) = task
+
+
+    if len(task_def['payload']) < SMALL_PAYLOAD:
+        task = convert_task_to_api_task(task_def)
+        rv = yield task.add_async(queue, transactional=transactional)
+        raise ndb.Return(rv)
+    else:
+        entity = _DeferredTaskEntity()
+        entity.payload = task_def['payload']
+        yield entity.put_async()
+
+        try:
+            new_def = task_def.copy()
+            new_def['payload'] = serialize(run_from_datastore, entity.key)
+            task = convert_task_to_api_task(new_def)
+            rv = yield task.add_async(queue, transactional=transactional)
+        except Exception as e:
+            if not ndb.in_transaction():
+                yield entity.delete_async()
+
+            raise e
+
+        raise ndb.Return(rv)
+
+
+
+@ndb.tasklet
 def defer_multi_async(tasks):
-    rv = yield [task() for task in tasks]
+    # type: (List[DeferredTask]) -> Future[List[taskqueue.Task]]
+    rv = yield [enqueue_async(task) for task in tasks]
     raise ndb.Return(rv)
 
 
+    grouped = defaultdict(list)
+    for (queue, transactional, task) in tasks:
+        grouped[(queue, transactional)].append(task)
+
+    rv = yield (taskqueue.Queue(queue).add_async(tasks, transactional)
+                for (queue, transactional), tasks in grouped.items())
+
+    raise ndb.Return(rv)
+
+
+
 def defer_multi(tasks):
+    # type: (List[DeferredTask]) -> List[taskqueue.Task]
     return defer_multi_async(tasks).get_result()
 
-
-def task(callable, *args, **kwargs):
-    return functools.partial(defer_async, callable, *args, **kwargs)
