@@ -173,7 +173,6 @@ def task(obj, *args, **kwargs):
 
 
 
-# @ndb.tasklet
 def defer_async(obj, *args, **kwargs):
     # type: (...) -> Future[taskqueue.Task]
     """Defers a callable for execution later.
