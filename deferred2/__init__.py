@@ -265,7 +265,7 @@ def defer_multi_async(*tasks, **kwargs):
     if transform_fns:
         for fn in transform_fns:
             tasks = yield map(fn, tasks)
-        tasks = filter(None, tasks)
+            tasks = filter(None, tasks)
 
     all_tasks = []
     grouped = defaultdict(list)
