@@ -269,10 +269,10 @@ def defer_multi_async(*tasks, **kwargs):
 
     all_tasks = []
     grouped = defaultdict(list)
-    for (queue, transactional, task) in tasks:
-        api_task = convert_task_to_api_task(task)
-        grouped[(queue, transactional)].append(api_task)
-        all_tasks.append(api_task)
+    for (queue, transactional, task_def) in tasks:
+        task = convert_task_to_api_task(task_def)
+        grouped[(queue, transactional)].append(task)
+        all_tasks.append(task)
 
 
     yield [
