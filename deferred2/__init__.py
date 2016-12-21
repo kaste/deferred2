@@ -297,9 +297,9 @@ def defer_multi_async(*tasks, **kwargs):
     raise ndb.Return(task for (_, _, task) in tasks)
 
 
-def defer_multi(*tasks):
+def defer_multi(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> List[taskqueue.Task]
-    return defer_multi_async(*tasks).get_result()
+    return defer_multi_async(*tasks, **kwargs).get_result()
 
 
 @ndb.tasklet
