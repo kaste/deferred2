@@ -282,11 +282,11 @@ class Batcher(object):
 def defer_multi_async(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> Future[List[taskqueue.Task]]
 
-    transform_fns = kwargs.pop(
+    transformers = kwargs.pop(
         'transformers', [handle_big_payloads])  \
         # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
 
-    transformers = transform_fns + [final_transformation]
+    transformers = transformers + [final_transformation]
     for fn in transformers:
         tasks = yield map(fn, tasks)
         tasks = filter(None, tasks)
