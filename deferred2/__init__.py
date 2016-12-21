@@ -294,7 +294,7 @@ def defer_multi_async(*tasks, **kwargs):
 
     yield Batcher(tasks).run_async()
 
-    raise ndb.Return(task for (_, _, task) in tasks)
+    raise ndb.Return([task for (_, _, task) in tasks])
 
 
 def defer_multi(*tasks, **kwargs):
