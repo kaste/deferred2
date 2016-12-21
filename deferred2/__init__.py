@@ -261,9 +261,27 @@ def final_transformation(task):
     return (queue, transactional, taskqueue.Task(**task_def))
 
 
+class Batcher(object):
+    def __init__(self, tasks):
+        self._tasks = defaultdict(list)
+        for t in tasks:
+            self.add(t)
+
+    def add(self, task):
+        (queue, transactional, task) = task
+        self._tasks[(queue, transactional)].append(task)
+
+    def run_async(self):
+        return [
+            queue_multiple_tasks(queue, transactional, tasks)
+            for (queue, transactional), tasks in self._tasks.iteritems()
+        ]
+
+
 @ndb.tasklet
 def defer_multi_async(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> Future[List[taskqueue.Task]]
+
     transform_fns = kwargs.pop(
         'transformers', [handle_big_payloads])  \
         # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
@@ -273,19 +291,11 @@ def defer_multi_async(*tasks, **kwargs):
         tasks = yield map(fn, tasks)
         tasks = filter(None, tasks)
 
-    all_tasks = []
-    grouped = defaultdict(list)
-    for (queue, transactional, task) in tasks:
-        grouped[(queue, transactional)].append(task)
-        all_tasks.append(task)
 
+    yield Batcher(tasks).run_async()
 
-    yield [
-        queue_multiple_tasks(queue, transactional, tasks)
-        for (queue, transactional), tasks in grouped.iteritems()  # noqa: F812
-    ]
+    raise ndb.Return(task for (_, _, task) in tasks)
 
-    raise ndb.Return(all_tasks)
 
 def defer_multi(*tasks):
     # type: (List[DeferredTask]) -> List[taskqueue.Task]
