@@ -255,6 +255,11 @@ def handle_big_payloads(task):
         # new_task = DeferredTask(queue, transactional, new_def)
         raise ndb.Return(new_task)
 
+@ndb.tasklet
+def final_transformation(task):
+    (queue, transactional, task_def) = task
+    return (queue, transactional, taskqueue.Task(**task_def))
+
 
 @ndb.tasklet
 def defer_multi_async(*tasks, **kwargs):
@@ -262,15 +267,15 @@ def defer_multi_async(*tasks, **kwargs):
     transform_fns = kwargs.pop(
         'transformers', [handle_big_payloads])  \
         # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
-    if transform_fns:
-        for fn in transform_fns:
-            tasks = yield map(fn, tasks)
-            tasks = filter(None, tasks)
+
+    transformers = transform_fns + [final_transformation]
+    for fn in transformers:
+        tasks = yield map(fn, tasks)
+        tasks = filter(None, tasks)
 
     all_tasks = []
     grouped = defaultdict(list)
-    for (queue, transactional, task_def) in tasks:
-        task = convert_task_to_api_task(task_def)
+    for (queue, transactional, task) in tasks:
         grouped[(queue, transactional)].append(task)
         all_tasks.append(task)
 
