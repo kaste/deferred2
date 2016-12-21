@@ -3,10 +3,18 @@ from google.appengine.api import taskqueue
 from google.appengine.ext import ndb
 
 import deferred2 as deferred
+from deferred2 import defer, defer_multi, task
 
 import pytest
 uses = pytest.mark.usefixtures
 
+
+def ResolvedFuture(val):
+    fut = ndb.Future()
+    fut.set_result(val)
+    return fut
+
+FutureNone = ResolvedFuture(None)
 
 @pytest.fixture
 def mockito():
@@ -130,13 +138,10 @@ class TestAutoTransactional:
 
     @pytest.fixture
     def taskMock(self, mockito, ndb):
-        resolvedFuture = ndb.Future()
-        resolvedFuture.set_result(None)
-
         taskMock = mockito.mock(strict=True)
         mockito.when(taskMock).add_async(
             mockito.any(str),
-            transactional=mockito.any(bool)).thenReturn(resolvedFuture)
+            transactional=mockito.any(bool)).thenReturn(FutureNone)
 
         mockito.when(taskqueue).Task(
             url=mockito.any(str),
@@ -246,6 +251,49 @@ class TestAddMultipleTasks:
             transformers=[ndb.tasklet(lambda t: None)])
 
         assert len(tasks) == 0
+
+    class TestBatching:
+        def testDifferentiateTransactional(self, mockito):
+
+            def assertTasksLen(wanted_length):
+                def _answer(q, tr, tasks):
+                    assert len(tasks) == wanted_length
+                    return FutureNone
+                return _answer
+
+            mockito.when(deferred) \
+                .queue_multiple_tasks('Foo', False, mockito.any(list)) \
+                .thenAnswer(assertTasksLen(2))
+            mockito.when(deferred) \
+                .queue_multiple_tasks('Foo', True, mockito.any(list)) \
+                .thenAnswer(assertTasksLen(1))
+
+            defer_multi(
+                task(work, 'A', _queue='Foo'),
+                task(work, 'B', _queue='Foo'),
+                task(work, 'A', _queue='Foo', _transactional=True))
+
+
+        def testDifferentiateQueueName(self, mockito):
+
+            def assertTasksLen(wanted_length):
+                def _answer(q, tr, tasks):
+                    assert len(tasks) == wanted_length
+                    return FutureNone
+                return _answer
+
+            mockito.when(deferred) \
+                .queue_multiple_tasks('Foo', False, mockito.any(list)) \
+                .thenAnswer(assertTasksLen(2))
+            mockito.when(deferred) \
+                .queue_multiple_tasks('Bar', False, mockito.any(list)) \
+                .thenAnswer(assertTasksLen(1))
+
+            defer_multi(
+                task(work, 'A', _queue='Foo'),
+                task(work, 'B', _queue='Foo'),
+                task(work, 'A', _queue='Bar'))
+
 
 
 
