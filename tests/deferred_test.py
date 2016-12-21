@@ -235,12 +235,11 @@ class TestAddMultipleTasks:
         assert sorted(messages) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     def testBigPayloadsRequireTransaction(self, deferreds):
-        ndb.transaction(
-            lambda: deferred.defer_multi(
-                *[deferred.task(work, str(i) * 100000) for i in range(5)]
-            ),
-            xg=True
-        )
+        with pytest.raises(taskqueue.BadTransactionStateError):
+            deferred.defer_multi(
+                *[deferred.task(work, str(i) * 100000) for i in range(5)])
+
+
 
 
 @uses('clear_messages', 'ndb')
