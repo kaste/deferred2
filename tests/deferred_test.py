@@ -240,6 +240,13 @@ class TestAddMultipleTasks:
                 *[deferred.task(work, str(i) * 100000) for i in range(5)])
 
 
+    def testFilterWhenTranfoprmedIntoNone(self, deferreds):
+        tasks = deferred.defer_multi(
+            deferred.task(work, 'A'),
+            transformers=[ndb.tasklet(lambda t: None)])
+
+        assert len(tasks) == 0
+
 
 
 @uses('clear_messages', 'ndb')
