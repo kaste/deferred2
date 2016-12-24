@@ -14,7 +14,9 @@ def ResolvedFuture(val):
     fut.set_result(val)
     return fut
 
+
 FutureNone = ResolvedFuture(None)
+
 
 @pytest.fixture
 def mockito():
@@ -136,41 +138,32 @@ class TestAdditionalCosmeticUrlArguments:
 
 class TestAutoTransactional:
 
-    @pytest.fixture
-    def taskMock(self, mockito, ndb):
-        taskMock = mockito.mock(strict=True)
-        mockito.when(taskMock).add_async(
-            mockito.any(str),
-            transactional=mockito.any(bool)).thenReturn(FutureNone)
+    def testTransactionalIfInTransaction(self, mockito, ndb):
 
-        mockito.when(taskqueue).Task(
-            url=mockito.any(str),
-            headers=mockito.any(dict),
-            payload=mockito.any(str)).thenReturn(taskMock)
-
-        yield taskMock
-
-        mockito.verifyNoMoreInteractions(taskMock)
-
-
-    def testTransactionalIfInTransaction(self, mockito, ndb, taskMock):
+        mockito.when(deferred) \
+            .queue_multiple_tasks('default', True, mockito.any(list)) \
+            .thenReturn(FutureNone)
 
         ndb.transaction(lambda: deferred.defer(work, 'A'))
-        mockito.verify(taskMock).add_async('default', transactional=True)
 
 
-    def testNotTransactionalIfOutsideTransaction(
-            self, mockito, ndb, taskMock):
+    def testNotTransactionalIfOutsideTransaction(self, mockito, ndb):
+
+        mockito.when(deferred) \
+            .queue_multiple_tasks('default', False, mockito.any(list)) \
+            .thenReturn(FutureNone)
 
         deferred.defer(work, 'A')
-        mockito.verify(taskMock).add_async('default', transactional=False)
 
 
-    def testNotTransactionalIfWanted(self, mockito, ndb, taskMock):
+    def testNotTransactionalIfWanted(self, mockito, ndb):
+
+        mockito.when(deferred) \
+            .queue_multiple_tasks('default', False, mockito.any(list)) \
+            .thenReturn(FutureNone)
 
         ndb.transaction(
             lambda: deferred.defer(work, 'A', _transactional=False))
-        mockito.verify(taskMock).add_async('default', transactional=False)
 
 
     def testCannotOptinToTransactionalOutsideOfTransaction(self, mockito, ndb):
@@ -239,18 +232,14 @@ class TestAddMultipleTasks:
 
         assert sorted(messages) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
-    def testBigPayloadsRequireTransaction(self, deferreds):
-        with pytest.raises(taskqueue.BadTransactionStateError):
-            deferred.defer_multi(
-                *[deferred.task(work, str(i) * 100000) for i in range(5)])
 
-
-    def testFilterWhenTranfoprmedIntoNone(self, deferreds):
+    def testFilterWhenTranformedIntoNone(self, deferreds):
         tasks = deferred.defer_multi(
             deferred.task(work, 'A'),
-            transformers=[ndb.tasklet(lambda t: None)])
+            transformers=[ndb.tasklet(lambda t, c: None)])
 
         assert len(tasks) == 0
+
 
     class TestBatching:
         def testDifferentiateTransactional(self, mockito):

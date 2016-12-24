@@ -35,6 +35,7 @@ from google.appengine.ext import deferred as old_deferred
 
 
 from collections import namedtuple, defaultdict
+import itertools as it
 import hashlib
 
 
@@ -172,7 +173,7 @@ def task(obj, *args, **kwargs):
                         task_def=taskargs)
 
 
-
+@ndb.tasklet
 def defer_async(obj, *args, **kwargs):
     # type: (...) -> Future[taskqueue.Task]
     """Defers a callable for execution later.
@@ -194,8 +195,8 @@ def defer_async(obj, *args, **kwargs):
         A taskqueue.Task object which represents an enqueued callable.
     """
 
-    deferred = task(obj, *args, **kwargs)
-    return enqueue_async(deferred)
+    tasks = yield defer_multi_async(task(obj, *args, **kwargs))
+    raise ndb.Return(tasks[0] if tasks else None)
 
 
 def defer(obj, *args, **kwargs):
@@ -204,61 +205,70 @@ def defer(obj, *args, **kwargs):
 
 
 @ndb.tasklet
-def enqueue_async(task):
-    # type: (DeferredTask) -> Future[taskqueue.Task]
-    (queue, transactional, task_def) = task
+def handle_big_payloads(task, on_rollback):
+    # type: (DeferredTask, Callable) -> Future[DeferredTask]
 
-
-    if len(task_def['payload']) < SMALL_PAYLOAD:
-        task = convert_task_to_api_task(task_def)
-        rv = yield task.add_async(queue, transactional=transactional)
-        raise ndb.Return(rv)
-    else:
-        entity = _DeferredTaskEntity()
-        entity.payload = task_def['payload']
-        yield entity.put_async()
-
-        try:
-            new_def = task_def.copy()
-            new_def['payload'] = serialize(run_from_datastore, entity.key)
-            task = convert_task_to_api_task(new_def)
-            rv = yield task.add_async(queue, transactional=transactional)
-        except Exception as e:
-            if not ndb.in_transaction():
-                yield entity.delete_async()
-
-            raise e
-
-        raise ndb.Return(rv)
-
-
-@ndb.tasklet
-def handle_big_payloads(task):
-    # type: (DeferredTask) -> DeferredTask
     task_def = task.task_def
 
     if len(task_def['payload']) < SMALL_PAYLOAD:
         raise ndb.Return(task)
     else:
-        if not ndb.in_transaction():
-            raise taskqueue.BadTransactionState(
-                'Handling BIG payloads touches the db and thus requires '
-                'a transaction.')
-
         entity = _DeferredTaskEntity()
         entity.payload = task_def['payload']
         key = yield entity.put_async()
+        if entity.huge or not ndb.in_transaction():
+            on_rollback(lambda: entity.delete_async())
 
         new_def = task_def.copy()
         new_def['payload'] = serialize(run_from_datastore, key)
         new_task = task._replace(task_def=new_def)
-        # new_task = DeferredTask(queue, transactional, new_def)
         raise ndb.Return(new_task)
 
+
 @ndb.tasklet
-def final_transformation(task):
+def final_transformation(task, on_rollback):
     (queue, transactional, task_def) = task
     return (queue, transactional, taskqueue.Task(**task_def))
+
+
+def flatten(iterable):
+    return list(it.chain.from_iterable(iterable))
+
+def unzip(iterable):
+    return zip(*iterable)
+
+
+class RollbackManager(object):
+    def __init__(self, size):
+        self._stacks = [CallbackManager() for _ in xrange(size)]
+
+    @ndb.tasklet
+    def close_async(self):
+        yield [s.close_async() for s in self._stacks]
+
+    def __len__(self):
+        return len(self._stacks)
+
+    def __iter__(self):
+        return iter(self._stacks)
+
+
+
+class CallbackManager(object):
+    def __init__(self):
+        self._callbacks = []
+
+    def add(self, fn):
+        self._callbacks.append(fn)
+
+    @ndb.tasklet
+    def close_async(self):
+        yield [c() for c in self.pop_all()]
+
+    def pop_all(self):
+        rv = self._callbacks[:]
+        self._callbacks = []
+        return rv
 
 
 class Batcher(object):
@@ -286,15 +296,44 @@ def defer_multi_async(*tasks, **kwargs):
         'transformers', [handle_big_payloads])  \
         # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
 
-    transformers = transformers + [final_transformation]
-    for fn in transformers:
-        tasks = yield map(fn, tasks)
-        tasks = filter(None, tasks)
+    rollback_stacks = RollbackManager(len(tasks))
+    data = zip(tasks, rollback_stacks)
 
-
-    yield Batcher(tasks).run_async()
+    try:
+        tasks = yield _apply_and_enqueue(transformers, data)
+    finally:
+        yield rollback_stacks.close_async()
 
     raise ndb.Return([task for (_, _, task) in tasks])
+
+
+@ndb.tasklet
+def _apply_and_enqueue(transformers, data):
+    transformers = transformers + [final_transformation]
+
+    def make_ap(fn):
+        @ndb.tasklet
+        def ap(t, s):
+            t = yield fn(t, s.add)
+            raise ndb.Return((t, s))
+        return ap
+
+    for fn in transformers:
+        ap = make_ap(fn)
+        data = yield [ap(t, s) for (t, s) in data if t]
+
+    if not data:
+        raise ndb.Return([])
+
+    tasks = unzip(data)[0]
+    try:
+        yield Batcher(tasks).run_async()
+    finally:
+        for (_, _, task), stack in data:
+            if task.was_enqueued:
+                stack.pop_all()
+
+    raise ndb.Return(tasks)
 
 
 def defer_multi(*tasks, **kwargs):
