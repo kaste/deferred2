@@ -273,19 +273,25 @@ class CallbackManager(object):
 
 class Batcher(object):
     def __init__(self, tasks):
-        self._tasks = defaultdict(list)
+        self._grouped = defaultdict(list)
+        self._tasks = []
+
         for t in tasks:
             self.add(t)
 
     def add(self, task):
         (queue, transactional, task) = task
-        self._tasks[(queue, transactional)].append(task)
+        self._grouped[(queue, transactional)].append(task)
+        self._tasks.append(task)
 
+    @ndb.tasklet
     def run_async(self):
-        return [
+        # type: () -> Future[List[taskqueue.Task]]
+        yield [
             queue_multiple_tasks(queue, transactional, tasks)
-            for (queue, transactional), tasks in self._tasks.iteritems()
+            for (queue, transactional), tasks in self._grouped.iteritems()
         ]
+        raise ndb.Return(self._tasks)
 
 
 @ndb.tasklet
@@ -304,7 +310,7 @@ def defer_multi_async(*tasks, **kwargs):
     finally:
         yield rollback_stacks.close_async()
 
-    raise ndb.Return([task for (_, _, task) in tasks])
+    raise ndb.Return(tasks)
 
 
 @ndb.tasklet
@@ -327,7 +333,7 @@ def _apply_and_enqueue(transformers, data):
 
     tasks = unzip(data)[0]
     try:
-        yield Batcher(tasks).run_async()
+        tasks = yield Batcher(tasks).run_async()
     finally:
         for (_, _, task), stack in data:
             if task.was_enqueued:
