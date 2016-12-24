@@ -52,7 +52,7 @@ def callable(request, clear_messages):
 class TestPayloadStores:
     def testSmall(self, deferreds, callable):
         data = 'A'
-        deferred.defer(callable, data)
+        defer(callable, data)
 
         assert deferred._DeferredTaskEntity.query().fetch() == []
 
@@ -62,7 +62,7 @@ class TestPayloadStores:
 
     def testLarge(self, deferreds, callable):
         data = 'A' * 100000
-        deferred.defer(callable, data)
+        defer(callable, data)
 
         payload = deferred._DeferredTaskEntity.query().get()
         assert payload.large
@@ -74,7 +74,7 @@ class TestPayloadStores:
 
     def testHuge(self, deferreds, blobstore, callable):
         data = 'A' * 1000000
-        deferred.defer(callable, data)
+        defer(callable, data)
 
         payload = deferred._DeferredTaskEntity.query().get()
         assert payload.huge
@@ -90,12 +90,12 @@ class TestNameMungling:
 
     def testHashifyTooLongNames(self, deferreds):
         name = 'N' * 1000
-        deferred.defer(work, _name=name)
+        defer(work, _name=name)
 
 
     def testHashifyNonStrings(self, deferreds):
         name = ndb.Key('User', '1234567', 'Order', 'as2897')
-        deferred.defer(work, _name=name)
+        defer(work, _name=name)
 
 
 DEFAULT_URL = deferred._DEFAULT_URL
@@ -103,27 +103,27 @@ DEFAULT_URL = deferred._DEFAULT_URL
 @uses('clear_messages')
 class TestAdditionalCosmeticUrlArguments:
     def testAddsArgsToTheUrl(self, deferreds):
-        task = deferred.defer(work, 'A', _urlsuffix='foo')
+        task = defer(work, 'A', _urlsuffix='foo')
         assert task.url == DEFAULT_URL + "/foo"
 
-        task = deferred.defer(work, 'A', _urlsuffix=('foo'))
+        task = defer(work, 'A', _urlsuffix=('foo'))
         assert task.url == DEFAULT_URL + "/foo"
 
-        task = deferred.defer(work, 'A',
+        task = defer(work, 'A',
                               _urlsuffix=('foo', ndb.Key('User', '1234').id()))
         assert task.url == DEFAULT_URL + "/foo/1234"
 
-        task = deferred.defer(work, 'A', _urlsuffix=('foo', 'bar'))
+        task = defer(work, 'A', _urlsuffix=('foo', 'bar'))
         assert task.url == DEFAULT_URL + "/foo/bar"
 
     def testRemovesArgsBeforeCallingTheDeferred(self, deferreds):
-        deferred.defer(work, 'A', _urlsuffix=('foo', 'bar'))
+        defer(work, 'A', _urlsuffix=('foo', 'bar'))
         deferreds.consume()
         assert ['A'] == messages
 
 
     def testAutoName(self, taskqueue):
-        deferred.defer(work, 'A')
+        defer(work, 'A')
 
         print work.__module__, work.__name__
         print work.__class__
@@ -144,7 +144,7 @@ class TestAutoTransactional:
             .queue_multiple_tasks('default', True, mockito.any(list)) \
             .thenReturn(FutureNone)
 
-        ndb.transaction(lambda: deferred.defer(work, 'A'))
+        ndb.transaction(lambda: defer(work, 'A'))
 
 
     def testNotTransactionalIfOutsideTransaction(self, mockito, ndb):
@@ -153,7 +153,7 @@ class TestAutoTransactional:
             .queue_multiple_tasks('default', False, mockito.any(list)) \
             .thenReturn(FutureNone)
 
-        deferred.defer(work, 'A')
+        defer(work, 'A')
 
 
     def testNotTransactionalIfWanted(self, mockito, ndb):
@@ -163,17 +163,17 @@ class TestAutoTransactional:
             .thenReturn(FutureNone)
 
         ndb.transaction(
-            lambda: deferred.defer(work, 'A', _transactional=False))
+            lambda: defer(work, 'A', _transactional=False))
 
 
     def testCannotOptinToTransactionalOutsideOfTransaction(self, mockito, ndb):
 
         with pytest.raises(taskqueue.BadTransactionStateError):
-            deferred.defer(work, 'A', _transactional=True)
+            defer(work, 'A', _transactional=True)
 
 
     def testTransactionalMustBeFalseIfNameIsGiven(self, taskqueue, ndb):
-        ndb.transaction(lambda: deferred.defer(work, 'A', _name='a'))
+        ndb.transaction(lambda: defer(work, 'A', _name='a'))
 
 
 
@@ -184,7 +184,7 @@ class TestCleanDbIfAddingTheTaskFails:
     def testTransactionalSpecifiedButNotInTransaction(self, deferreds):
         data = 'A' * 100000
         with pytest.raises(taskqueue.BadTransactionStateError):
-            deferred.defer(work, data, _transactional=True)
+            defer(work, data, _transactional=True)
 
         assert deferred._DeferredTaskEntity.query().fetch() == []
 
@@ -195,7 +195,7 @@ class TestCleanDbIfAddingTheTaskFails:
 
         data = 'A' * 100000
         with pytest.raises(taskqueue.Error):
-            deferred.defer(work, data)
+            defer(work, data)
 
         assert deferred._DeferredTaskEntity.query().fetch() == []
 
@@ -206,7 +206,7 @@ class TestCleanDbIfAddingTheTaskFails:
 
         data = 'A' * 100000
         with pytest.raises(taskqueue.Error):
-            ndb.transaction(lambda: deferred.defer(work, data))
+            ndb.transaction(lambda: defer(work, data))
 
         assert deferred._DeferredTaskEntity.query().fetch() == []
 
