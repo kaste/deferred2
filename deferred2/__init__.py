@@ -272,12 +272,9 @@ class CallbackManager(object):
 
 
 class Batcher(object):
-    def __init__(self, tasks):
+    def __init__(self):
         self._grouped = defaultdict(list)
         self._tasks = []
-
-        for t in tasks:
-            self.add(t)
 
     def add(self, task):
         (queue, transactional, task) = task
@@ -292,6 +289,13 @@ class Batcher(object):
             for (queue, transactional), tasks in self._grouped.iteritems()
         ]
         raise ndb.Return(self._tasks)
+
+
+
+def batch_enqueue_tasks_async(tasks):
+    batcher = Batcher()
+    map(batcher.add, tasks)
+    return batcher.run_async()
 
 
 @ndb.tasklet
@@ -333,7 +337,7 @@ def _apply_and_enqueue(transformers, data):
 
     tasks = unzip(data)[0]
     try:
-        tasks = yield Batcher(tasks).run_async()
+        tasks = yield batch_enqueue_tasks_async(tasks)
     finally:
         for (_, _, task), stack in data:
             if task.was_enqueued:
