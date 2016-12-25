@@ -129,10 +129,6 @@ DeferredTask = namedtuple(
     'DeferredTask', ['queue_name', 'transactional', 'task_def'])  \
     # type: Tuple[str, bool, dict]
 
-def convert_task_to_api_task(task_def):
-    # type: (dict) -> taskqueue.Task
-    return taskqueue.Task(**task_def)
-
 
 def task(obj, *args, **kwargs):
     # type: (...) -> DeferredTask
@@ -321,16 +317,21 @@ def defer_multi_async(*tasks, **kwargs):
 def _apply_and_enqueue(transformers, data):
     transformers = transformers + [final_transformation]
 
-    def make_ap(fn):
+    # We need to transform the transformers bc we want the parallel yield below
+    def make_apply_fn(fn):
         @ndb.tasklet
-        def ap(t, s):
+        def applier(t, s):
             t = yield fn(t, s.add)
             raise ndb.Return((t, s))
-        return ap
+        return applier
 
+    transformers = map(make_apply_fn, transformers)
+
+    # We generally expect and filter None's. But bc the last transformation
+    # never returns a None, we're done after this loop and don't have to filter
+    # once again.
     for fn in transformers:
-        ap = make_ap(fn)
-        data = yield [ap(t, s) for (t, s) in data if t]
+        data = yield [fn(t, s) for (t, s) in data if t]
 
     if not data:
         raise ndb.Return([])
