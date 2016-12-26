@@ -25,7 +25,6 @@ from google.appengine.ext import deferred as old_deferred
 
 
 from collections import namedtuple
-import itertools as it
 import hashlib
 
 from . import ext
@@ -123,9 +122,6 @@ def final_transformation(task, on_rollback):
     (queue, transactional, task_def) = task
     return (queue, transactional, taskqueue.Task(**task_def))
 
-
-def flatten(iterable):
-    return list(it.chain.from_iterable(iterable))
 
 def unzip(iterable):
     return zip(*iterable)
