@@ -143,7 +143,7 @@ class TestAutoTransactional:
 
     def testTransactionalIfInTransaction(self, mockito, ndb):
 
-        mockito.when(deferred) \
+        mockito.when(deferred.batcher) \
             .queue_multiple_tasks('default', True, mockito.any(list)) \
             .thenReturn(FutureNone)
 
@@ -152,7 +152,7 @@ class TestAutoTransactional:
 
     def testNotTransactionalIfOutsideTransaction(self, mockito, ndb):
 
-        mockito.when(deferred) \
+        mockito.when(deferred.batcher) \
             .queue_multiple_tasks('default', False, mockito.any(list)) \
             .thenReturn(FutureNone)
 
@@ -161,7 +161,7 @@ class TestAutoTransactional:
 
     def testNotTransactionalIfWanted(self, mockito, ndb):
 
-        mockito.when(deferred) \
+        mockito.when(deferred.batcher) \
             .queue_multiple_tasks('default', False, mockito.any(list)) \
             .thenReturn(FutureNone)
 
@@ -253,10 +253,10 @@ class TestAddMultipleTasks:
                     return FutureNone
                 return _answer
 
-            mockito.when(deferred) \
+            mockito.when(deferred.batcher) \
                 .queue_multiple_tasks('Foo', False, mockito.any(list)) \
                 .thenAnswer(assertTasksLen(2))
-            mockito.when(deferred) \
+            mockito.when(deferred.batcher) \
                 .queue_multiple_tasks('Foo', True, mockito.any(list)) \
                 .thenAnswer(assertTasksLen(1))
 
@@ -274,10 +274,10 @@ class TestAddMultipleTasks:
                     return FutureNone
                 return _answer
 
-            mockito.when(deferred) \
+            mockito.when(deferred.batcher) \
                 .queue_multiple_tasks('Foo', False, mockito.any(list)) \
                 .thenAnswer(assertTasksLen(2))
-            mockito.when(deferred) \
+            mockito.when(deferred.batcher) \
                 .queue_multiple_tasks('Bar', False, mockito.any(list)) \
                 .thenAnswer(assertTasksLen(1))
 

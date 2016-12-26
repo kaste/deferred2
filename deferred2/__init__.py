@@ -24,11 +24,12 @@ from google.appengine.ext import ndb
 from google.appengine.ext import deferred as old_deferred
 
 
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 import itertools as it
 import hashlib
 
 from . import ext
+from . import batcher
 
 
 
@@ -163,33 +164,6 @@ class CallbackManager(object):
         return rv
 
 
-class Batcher(object):
-    def __init__(self):
-        self._grouped = defaultdict(list)
-        self._tasks = []
-
-    def add(self, task):
-        (queue, transactional, task) = task
-        self._grouped[(queue, transactional)].append(task)
-        self._tasks.append(task)
-
-    @ndb.tasklet
-    def run_async(self):
-        # type: () -> Future[List[taskqueue.Task]]
-        yield [
-            queue_multiple_tasks(queue, transactional, tasks)
-            for (queue, transactional), tasks in self._grouped.iteritems()
-        ]
-        raise ndb.Return(self._tasks)
-
-
-
-def batch_enqueue_tasks_async(tasks):
-    batcher = Batcher()
-    map(batcher.add, tasks)
-    return batcher.run_async()
-
-
 def _make_apply_fn(fn):
     @ndb.tasklet
     def applier(t, s):
@@ -234,7 +208,7 @@ def _apply_and_enqueue(transformers, tasks, stacks):
 
     tasks = unzip(data)[0]
     try:
-        tasks = yield batch_enqueue_tasks_async(tasks)
+        tasks = yield batcher.batch_enqueue_tasks_async(tasks)
     finally:
         # Inverse logic: For all the successful tasks we pop the registered
         # callbacks. In the outer scope we unconditionally rollback everything
@@ -250,16 +224,6 @@ def _apply_and_enqueue(transformers, tasks, stacks):
 def defer_multi(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> List[taskqueue.Task]
     return defer_multi_async(*tasks, **kwargs).get_result()
-
-
-@ndb.tasklet
-def queue_multiple_tasks(queue, transactional, tasks):
-    # Wrapper b/c Queue().add_async returns a UserRPC but a MultiFuture only
-    # accepts Futures as dependents.
-    raise ndb.Return(
-        (yield taskqueue.Queue(queue).add_async(tasks,
-                                                transactional=transactional))
-    )
 
 
 def one_shot_async(*tasks):
