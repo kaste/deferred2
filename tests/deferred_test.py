@@ -9,6 +9,9 @@ import pytest
 uses = pytest.mark.usefixtures
 
 
+BigPayloadEntity = deferred.ext.big_payloads.BigPayload
+
+
 def ResolvedFuture(val):
     fut = ndb.Future()
     fut.set_result(val)
@@ -54,7 +57,7 @@ class TestPayloadStores:
         data = 'A'
         defer(callable, data)
 
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
 
         deferreds.consume()
         assert ['A'] == messages
@@ -64,24 +67,24 @@ class TestPayloadStores:
         data = 'A' * 100000
         defer(callable, data)
 
-        payload = deferred._DeferredTaskEntity.query().get()
+        payload = BigPayloadEntity.query().get()
         assert payload.large
 
         deferreds.consume()
         assert [data] == messages
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
 
 
     def testHuge(self, deferreds, blobstore, callable):
         data = 'A' * 1000000
         defer(callable, data)
 
-        payload = deferred._DeferredTaskEntity.query().get()
+        payload = BigPayloadEntity.query().get()
         assert payload.huge
 
         deferreds.consume()
         assert [data] == messages
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
         assert blobstore.BlobInfo.all().fetch(limit=None) == []
 
 
@@ -186,7 +189,7 @@ class TestCleanDbIfAddingTheTaskFails:
         with pytest.raises(taskqueue.BadTransactionStateError):
             defer(work, data, _transactional=True)
 
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
 
     def testTaskCreationFailsNonTransactional(self, deferreds, monkeypatch):
         def fail(*a, **kw):
@@ -197,7 +200,7 @@ class TestCleanDbIfAddingTheTaskFails:
         with pytest.raises(taskqueue.Error):
             defer(work, data)
 
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
 
     def testTaskCreationFailsInTransaction(self, deferreds, monkeypatch):
         def fail(*a, **kw):
@@ -208,7 +211,7 @@ class TestCleanDbIfAddingTheTaskFails:
         with pytest.raises(taskqueue.Error):
             ndb.transaction(lambda: defer(work, data))
 
-        assert deferred._DeferredTaskEntity.query().fetch() == []
+        assert BigPayloadEntity.query().fetch() == []
 
 
 @uses('clear_messages', 'ndb')
