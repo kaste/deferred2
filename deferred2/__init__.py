@@ -294,6 +294,14 @@ def batch_enqueue_tasks_async(tasks):
     return batcher.run_async()
 
 
+def _make_apply_fn(fn):
+    @ndb.tasklet
+    def applier(t, s):
+        t = yield fn(t, s.add)
+        raise ndb.Return((t, s))
+    return applier
+
+
 @ndb.tasklet
 def defer_multi_async(*tasks, **kwargs):
     # type: (List[DeferredTask]) -> Future[List[taskqueue.Task]]
@@ -303,10 +311,9 @@ def defer_multi_async(*tasks, **kwargs):
         # type: List[Callable[[DeferredTask], Optional[DeferredTask]]]
 
     rollback_stacks = RollbackManager(len(tasks))
-    data = zip(tasks, rollback_stacks)
 
     try:
-        tasks = yield _apply_and_enqueue(transformers, data)
+        tasks = yield _apply_and_enqueue(transformers, tasks, rollback_stacks)
     finally:
         yield rollback_stacks.close_async()
 
@@ -314,19 +321,12 @@ def defer_multi_async(*tasks, **kwargs):
 
 
 @ndb.tasklet
-def _apply_and_enqueue(transformers, data):
+def _apply_and_enqueue(transformers, tasks, stacks):
     transformers = transformers + [final_transformation]
-
     # We need to transform the transformers bc we want the parallel yield below
-    def make_apply_fn(fn):
-        @ndb.tasklet
-        def applier(t, s):
-            t = yield fn(t, s.add)
-            raise ndb.Return((t, s))
-        return applier
+    transformers = map(_make_apply_fn, transformers)
 
-    transformers = map(make_apply_fn, transformers)
-
+    data = zip(tasks, stacks)
     # We generally expect and filter None's. But bc the last transformation
     # never returns a None, we're done after this loop and don't have to filter
     # once again.
@@ -340,6 +340,10 @@ def _apply_and_enqueue(transformers, data):
     try:
         tasks = yield batch_enqueue_tasks_async(tasks)
     finally:
+        # Inverse logic: For all the successful tasks we pop the registered
+        # callbacks. In the outer scope we unconditionally rollback everything
+        # else. This is to ensure that all tasks we lost during transformation
+        # (the transformator returned None or raised), get rolled back.
         for (_, _, task), stack in data:
             if task.was_enqueued:
                 stack.pop_all()
