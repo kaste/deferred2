@@ -113,7 +113,7 @@ class TestAdditionalCosmeticUrlArguments:
         assert task.url == DEFAULT_URL + "/foo"
 
         task = defer(work, 'A',
-                              _urlsuffix=('foo', ndb.Key('User', '1234').id()))
+                     _urlsuffix=('foo', ndb.Key('User', '1234').id()))
         assert task.url == DEFAULT_URL + "/foo/1234"
 
         task = defer(work, 'A', _urlsuffix=('foo', 'bar'))
