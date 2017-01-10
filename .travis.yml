@@ -2,9 +2,9 @@ language: python
 python:
 - '2.7'
 install:
-  - pip install .
-  - pip install pytest --upgrade
-  - pip install -r requirements.txt
+- pip install .
+- pip install pytest --upgrade
+- pip install -r requirements.txt
 script:
 - py.test tests
 env:
@@ -12,8 +12,6 @@ env:
   - API_CHECK=https://appengine.google.com/api/updatecheck
   - GAE=./google_appengine
 before_script:
-# Idea from https://blog.bekt.net/p/gae-sdk/
-# - SDK_VERSION=$(curl -s $API_CHECK | awk -F '\"' '/release/ {print $2}')
 - SDK_VERSION=1.9.49
 - SDK_URL=https://storage.googleapis.com/appengine-sdks/featured/google_appengine_$SDK_VERSION.zip
 - wget $SDK_URL -nv
@@ -22,7 +20,7 @@ deploy:
   provider: pypi
   user: herrkaste
   password:
-    secure: vRFXP4yMc30orSs5fK4tNxPTgcP6ppTjE51hNfDKTivihVFZo1g42EMWpTrhWpZs3wYrtmmPlBYREDaCTrWzwvgKQ+SbSdHUa9tIR9238KH1KQas5+ZavGrC+7HfjAdJMWjuobAhpB5K+5i+wG+W83lIJ6lt2LCpeYwfr36gs3neIQOD6t7N/zTAQT8Zuf6XOtHhuacOcqD+y+Koz9nxuJDB0x04Uj3jW6Jhhh4b2aeoPdQvYgRII8Ystt5hYve5OzF00DqXp+Ad/j7LFWi7DO9ZsJPopHtRnHeidUzpLTvMoxP45CA3ALpM+xXqxDjqZO2E5GiEFTVZMzx3iSA5P7mFhKU6tXoTSV74E0lZFt/SStpYlO+GPYTGzyVCuBYMgU6ZapdFmFPUhzsH0H3oJiqHol+ILRM1cwOlh4febQEcMNvMx27d/Nm4ojrobNk+Jdcc7fEfsmuJ8Hcu84SPQuFiS6FNoi49oQGJXQpv8/KJKOlmWz18ZGHViKzb+Q9P7uVRw7WyL9a+9Za2vFXM/ccCNwNYO0INajtIJ1UTIMdYKxCv7iSzRvTwkpbguikfP+2VPSaVX2HtcP1dS4kBt7yFTDFWJkHxVXFY4Fuw2w6E5Nw6bqoyRyFAA4dx1zBPeOSTuocTfBjrR2omnHLvvmgTP3XHkZBb3KXaA3JZGqw=
+    secure: ojCKKNV+oVYJTlsgQQTOYfffjCdz5QIi2gVOLxIYpOp+DVVvVV1xy4G2yZ8aWWCRUWiHslcEIIg0KiuJUz+gEfoNB1ORVfHI7FhoZiL2Xbq5h1Sga+3FHdB3c4OGTe7O0/c++RBdiLI9xbSFQpshKtWPmofNovDNAdqBszU392J41wRqJzh0EarMNjb9+FWxK4GHcZfNXHH98ylsp4Ar6ji0NGw7RQXjYZZ7u0nm4oc6naYRCx5eoC3/66Ukx5nKHrR5OsxzgWhrSVdkYt3Yt/GXTymXDqH/+uGaT0WwQPyFW1Hltl1S23RGbwBkOXBDfY1fZHeDf57s2d/J05FyUoYwas4Z7X+aYwVhbR6zV5t9/mMBUIPMThqzZfdCIfmb0x4d6/M2AZKiz0YC0gT5hINm4AsYuAKn7nkecCwhRuIgrudt6RiRdVG+ThVLdAkSd53D9bpDZALrMsNLJdmuf/BMyR/q/Db/o9Tsubtt2pLSIJAzkx6jp361jJ802tnwi0JuwQA55W9BfYZsBSfQDb8vuN3HuqUqGCoSS2eVR0PHI80C9R1+LSWKg5U/ndxA1e8BJjk45G5tna+e5GxByjB0ndQ6idLVswVhdqQWgK5wKM5LbTGM0e0Kij+K4fSO42Y8t2qgGRB3b9eN3mf0m/aQhiBT1PqHvqXteVM8Ezk=
   on:
     tags: true
     distributions: sdist bdist_wheel
